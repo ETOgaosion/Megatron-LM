@@ -189,6 +189,7 @@ class TopKRouter(Router):
             probs = self.apply_load_balancing_loss(
                 activation=probs, load_balancing_loss_func=aux_loss_func
             )
+            probs = probs / (probs.sum(dim=-1, keepdim=True) + 1e-20)       # patch for qwen3-moe
         return probs, routing_map
 
     def seq_aux_loss_load_balancing(self, logits: torch.Tensor, bsz: int, seq_length: int):
