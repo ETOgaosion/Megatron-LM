@@ -707,6 +707,12 @@ class TransformerConfig(ModelParallelConfig):
     transformer_impl: str = "transformer_engine"
     """Transformer implementation to use.
     Options are 'transformer_engine' for Transformer Engine and 'local' for MCore."""
+    
+    #######################
+    # [Added] Megatron-Base
+    #######################
+    cpu_embedding: bool = True
+    """Use CPU for embedding layer."""
 
     def __post_init__(self):
         """Python dataclass method that is used to modify attributes after initialization.

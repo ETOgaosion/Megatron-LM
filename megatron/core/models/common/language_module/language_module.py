@@ -232,6 +232,8 @@ class LanguageModule(MegatronModule):
                 weight = self.shared_embedding_or_output_weight()
                 weight.data = weight.data.cuda()
                 torch.distributed.all_reduce(weight.data, group=self.embd_group)
+                if self.pre_process:
+                    weight.data = weight.data.cpu()
 
         elif not getattr(LanguageModule, "embedding_warning_printed", False):
             logging.getLogger(__name__).warning(
