@@ -161,6 +161,8 @@ class MoELayer(BaseMoELayer):
             )
             if self.shared_expert_overlap:
                 self.token_dispatcher.set_shared_experts(self.shared_experts)
+        
+        self.iteration = 0
 
     def router_and_preprocess(self, hidden_states: torch.Tensor):
         """Compute and preprocess token routing for dispatch.
@@ -203,6 +205,15 @@ class MoELayer(BaseMoELayer):
         dispatched_input, tokens_per_expert, permuted_probs = (
             self.token_dispatcher.dispatch_postprocess(hidden_states, probs)
         )
+        
+        tokens_per_expert_map = {self.local_expert_indices[i]: tokens_per_expert[i] for i in range(len(self.local_expert_indices))}
+        readable_file_name = f"/mnt/hdfs/gaoziyuan/data/moe/rank_{torch.distributed.get_rank()}/tokens_per_expert_iter_{self.iteration}/data.txt"
+        data_file_name = f"/mnt/hdfs/gaoziyuan/data/moe/rank_{torch.distributed.get_rank()}/tokens_per_expert_iter_{self.iteration}/data_layer_{self.layer_number}.pt"
+        with open(readable_file_name, "a+") as f:
+            f.write(f"Layer {self.layer_number}, Tokens per expert: {tokens_per_expert_map}\n")
+        with open(data_file_name,"wb+") as f:
+            torch.save(tokens_per_expert_map, f)
+        
         expert_output, mlp_bias = self.experts(dispatched_input, tokens_per_expert, permuted_probs)
         assert mlp_bias is None, f"mlp_bias is not supported for {type(self.token_dispatcher)}"
         output = self.token_dispatcher.combine_preprocess(expert_output)
@@ -266,7 +277,8 @@ class MoELayer(BaseMoELayer):
                 output, mlp_bias = tensor_parallel.checkpoint(custom_forward, False, hidden_states)
         else:
             output, mlp_bias = custom_forward(hidden_states)
-
+        
+        self.iteration += 1
         return output, mlp_bias
 
     def backward_dw(self):
