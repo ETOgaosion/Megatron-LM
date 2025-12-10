@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Optional, Union
 
 import torch
+import os
 
 from megatron.core import parallel_state, tensor_parallel
 from megatron.core.process_groups_config import ModelCommProcessGroups
@@ -207,6 +208,7 @@ class MoELayer(BaseMoELayer):
         )
         
         tokens_per_expert_map = {self.local_expert_indices[i]: tokens_per_expert[i] for i in range(len(self.local_expert_indices))}
+        os.makedirs(f"/mnt/hdfs/gaoziyuan/data/moe/rank_{torch.distributed.get_rank()}/tokens_per_expert_iter_{self.iteration}", exist_ok=True)
         readable_file_name = f"/mnt/hdfs/gaoziyuan/data/moe/rank_{torch.distributed.get_rank()}/tokens_per_expert_iter_{self.iteration}/data.txt"
         data_file_name = f"/mnt/hdfs/gaoziyuan/data/moe/rank_{torch.distributed.get_rank()}/tokens_per_expert_iter_{self.iteration}/data_layer_{self.layer_number}.pt"
         with open(readable_file_name, "a+") as f:
