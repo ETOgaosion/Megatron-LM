@@ -280,8 +280,6 @@ class MoELayer(BaseMoELayer):
                 output, mlp_bias = tensor_parallel.checkpoint(custom_forward, False, hidden_states)
         else:
             output, mlp_bias = custom_forward(hidden_states)
-        
-        self.iteration += 1
         return output, mlp_bias
 
     def backward_dw(self):
