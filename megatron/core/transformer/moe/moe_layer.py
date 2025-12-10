@@ -163,7 +163,10 @@ class MoELayer(BaseMoELayer):
             if self.shared_expert_overlap:
                 self.token_dispatcher.set_shared_experts(self.shared_experts)
         
-        self.iteration = 0
+        self.experts_token_count = {}
+    
+    def clear_experts_token_count() -> None:
+        self.experts_token_count = {}
 
     def router_and_preprocess(self, hidden_states: torch.Tensor):
         """Compute and preprocess token routing for dispatch.
@@ -207,20 +210,12 @@ class MoELayer(BaseMoELayer):
             self.token_dispatcher.dispatch_postprocess(hidden_states, probs)
         )
         
-        if self.config.moe_log_routing:
-            tokens_per_expert_map = {self.local_expert_indices[i]: tokens_per_expert[i] for i in range(len(self.local_expert_indices))}
-            i = 0
-            folder_name = f"/mnt/hdfs/gaoziyuan/data/moe_{self.config.moe_log_routing_path}/rank_{torch.distributed.get_rank()}/tokens_per_expert_{self.layer_number}/iter_{self.iteration}"
-            if torch.distributed.get_rank() == 0:
-                with open(f"/mnt/hdfs/gaoziyuan/data/moe_{self.config.moe_log_routing_path}/record.txt", "a+") as f:
-                    f.write(f"Iteration {self.iteration}\n")
-            os.makedirs(folder_name, exist_ok=True)
-            readable_file_name = f"{folder_name}/data.txt"
-            data_file_name = f"{folder_name}/data_layer_{self.layer_number}.pt"
-            with open(readable_file_name, "a+") as f:
-                f.write(f"Layer {self.layer_number}, Tokens per expert: {tokens_per_expert_map}\n")
-            with open(data_file_name,"wb+") as f:
-                torch.save(tokens_per_expert_map, f)
+        if self.config.record_moe_token_count:
+            for i in range(len(self.local_expert_indices)):
+                if self.local_expert_indices[i] not in self.experts_token_count:
+                    self.experts_token_count[self.local_expert_indices[i]] = tokens_per_expert[i]
+                else:
+                    self.experts_token_count[self.local_expert_indices[i]] += tokens_per_expert[i]
         
         expert_output, mlp_bias = self.experts(dispatched_input, tokens_per_expert, permuted_probs)
         assert mlp_bias is None, f"mlp_bias is not supported for {type(self.token_dispatcher)}"

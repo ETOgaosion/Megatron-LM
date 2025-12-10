@@ -233,6 +233,27 @@ class GPTModel(LanguageModule):
             if hasattr(module, 'finish_init'):
                 quant_config = get_quant_config_or_none(name, self.config.quant_recipe)
                 module.finish_init(quant_config)
+    
+    def reset_moe_counter(self):
+        from megatron.core.transformer.moe.moe_layer import MoELayer
+        
+        for layer in self.decoder.layers:
+            if isinstance(layer.mlp, MoELayer):
+                layer.mlp.clear_experts_token_count()
+    
+    def export_moe_token_count(self, output_dir: str):
+        from megatron.core.transformer.moe.moe_layer import MoELayer
+        
+        for layer in self.decoder.layers:
+            if isinstance(layer.mlp, MoELayer):
+                layer_number = layer.layer_number
+                tokens_per_expert_map = layer.mlp.experts_token_count
+                readable_file_name = os.path.join(output_dir, f"rank_{torch.distributed.get_rank()}", f"tokens_per_expert_layer_{layer_number}.txt")
+                data_file_name = os.path.join(output_dir, f"rank_{torch.distributed.get_rank()}", f"tokens_per_expert_layer_{layer_number}.pt")
+                with open(readable_file_name, "w") as f:
+                    f.write(f"Layer {layer_number}, Tokens per expert: {tokens_per_expert_map}\n")
+                with open(data_file_name,"wb") as f:
+                    torch.save(tokens_per_expert_map, f)
 
     def set_input_tensor(self, input_tensor: Tensor) -> None:
         """Sets input tensor to the model.
