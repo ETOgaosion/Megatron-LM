@@ -210,14 +210,10 @@ class MoELayer(BaseMoELayer):
         if self.config.moe_log_routing:
             tokens_per_expert_map = {self.local_expert_indices[i]: tokens_per_expert[i] for i in range(len(self.local_expert_indices))}
             i = 0
-            while True:
-                folder_name = f"/mnt/hdfs/gaoziyuan/data/moe_{self.config.moe_log_routing_path}_{i}/rank_{torch.distributed.get_rank()}/tokens_per_expert_iter_{self.iteration}"
-                if os.path.exists(folder_name):
-                    i += 1
-                    continue
-                else:
-                    break
-            folder_name = f"/mnt/hdfs/gaoziyuan/data/moe_{self.config.moe_log_routing_path}_{i}/rank_{torch.distributed.get_rank()}/tokens_per_expert_iter_{self.iteration}"
+            folder_name = f"/mnt/hdfs/gaoziyuan/data/moe_{self.config.moe_log_routing_path}/rank_{torch.distributed.get_rank()}/tokens_per_expert_{self.layer_number}/iter_{self.iteration}"
+            if torch.distributed.get_rank() == 0:
+                with open(f"/mnt/hdfs/gaoziyuan/data/moe_{self.config.moe_log_routing_path}/record.txt", "a+") as f:
+                    f.write(f"Iteration {self.iteration}\n")
             os.makedirs(folder_name, exist_ok=True)
             readable_file_name = f"{folder_name}/data.txt"
             data_file_name = f"{folder_name}/data_layer_{self.layer_number}.pt"
