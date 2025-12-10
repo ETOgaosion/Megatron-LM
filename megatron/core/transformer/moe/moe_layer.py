@@ -207,14 +207,16 @@ class MoELayer(BaseMoELayer):
             self.token_dispatcher.dispatch_postprocess(hidden_states, probs)
         )
         
-        tokens_per_expert_map = {self.local_expert_indices[i]: tokens_per_expert[i] for i in range(len(self.local_expert_indices))}
-        os.makedirs(f"/mnt/hdfs/gaoziyuan/data/moe/rank_{torch.distributed.get_rank()}/tokens_per_expert_iter_{self.iteration}", exist_ok=True)
-        readable_file_name = f"/mnt/hdfs/gaoziyuan/data/moe/rank_{torch.distributed.get_rank()}/tokens_per_expert_iter_{self.iteration}/data.txt"
-        data_file_name = f"/mnt/hdfs/gaoziyuan/data/moe/rank_{torch.distributed.get_rank()}/tokens_per_expert_iter_{self.iteration}/data_layer_{self.layer_number}.pt"
-        with open(readable_file_name, "a+") as f:
-            f.write(f"Layer {self.layer_number}, Tokens per expert: {tokens_per_expert_map}\n")
-        with open(data_file_name,"wb+") as f:
-            torch.save(tokens_per_expert_map, f)
+        if self.config.moe_log_routing:
+            tokens_per_expert_map = {self.local_expert_indices[i]: tokens_per_expert[i] for i in range(len(self.local_expert_indices))}
+            folder_name = f"/mnt/hdfs/gaoziyuan/data/moe_{self.config.moe_log_routing_path}/rank_{torch.distributed.get_rank()}/tokens_per_expert_iter_{self.iteration}"
+            os.makedirs(folder_name, exist_ok=True)
+            readable_file_name = f"{folder_name}/data.txt"
+            data_file_name = f"{folder_name}/data_layer_{self.layer_number}.pt"
+            with open(readable_file_name, "a+") as f:
+                f.write(f"Layer {self.layer_number}, Tokens per expert: {tokens_per_expert_map}\n")
+            with open(data_file_name,"wb+") as f:
+                torch.save(tokens_per_expert_map, f)
         
         expert_output, mlp_bias = self.experts(dispatched_input, tokens_per_expert, permuted_probs)
         assert mlp_bias is None, f"mlp_bias is not supported for {type(self.token_dispatcher)}"

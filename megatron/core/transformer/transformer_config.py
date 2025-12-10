@@ -384,6 +384,9 @@ class TransformerConfig(ModelParallelConfig):
     ####################
     # MoE related
     ####################
+    moe_log_routing: bool = False
+    moe_log_routing_path: Optional[str] = None
+    
     moe_shared_expert_intermediate_size: Optional[int] = None
     """Shared expert total ffn hidden size.
     It should be equal to 'num_shared_experts * ffn_size_of_each_shared_expert' if
