@@ -250,9 +250,9 @@ class GPTModel(LanguageModule):
                 tokens_per_expert_map = layer.mlp.experts_token_count
                 readable_file_name = os.path.join(output_dir, f"rank_{torch.distributed.get_rank()}", f"tokens_per_expert_layer_{layer_number}.txt")
                 data_file_name = os.path.join(output_dir, f"rank_{torch.distributed.get_rank()}", f"tokens_per_expert_layer_{layer_number}.pt")
-                with open(readable_file_name, "w") as f:
+                with open(readable_file_name, "a+") as f:
                     f.write(f"Layer {layer_number}, Tokens per expert: {tokens_per_expert_map}\n")
-                with open(data_file_name,"wb") as f:
+                with open(data_file_name,"ab+") as f:
                     torch.save(tokens_per_expert_map, f)
 
     def set_input_tensor(self, input_tensor: Tensor) -> None:
