@@ -246,6 +246,8 @@ class GPTModel(LanguageModule):
         
         readable_file_name = os.path.join(output_dir, f"rank_{torch.distributed.get_rank()}", f"tokens_per_expert.txt")
         data_file_name = os.path.join(output_dir, f"rank_{torch.distributed.get_rank()}", f"tokens_per_expert.pt")
+        if not os.path.exists(os.path.join(output_dir, f"rank_{torch.distributed.get_rank()}")):
+            os.makedirs(os.path.join(output_dir, f"rank_{torch.distributed.get_rank()}"))
         layer_tokens_per_expert_map = {}
         with open(readable_file_name, "a+") as f:
             for layer in self.decoder.layers:
