@@ -244,16 +244,18 @@ class GPTModel(LanguageModule):
     def export_moe_token_count(self, output_dir: str):
         from megatron.core.transformer.moe.moe_layer import MoELayer
         
-        for layer in self.decoder.layers:
-            if isinstance(layer.mlp, MoELayer):
-                layer_number = layer.layer_number
-                tokens_per_expert_map = layer.mlp.experts_token_count
-                readable_file_name = os.path.join(output_dir, f"rank_{torch.distributed.get_rank()}", f"tokens_per_expert_layer_{layer_number}.txt")
-                data_file_name = os.path.join(output_dir, f"rank_{torch.distributed.get_rank()}", f"tokens_per_expert_layer_{layer_number}.pt")
-                with open(readable_file_name, "a+") as f:
+        readable_file_name = os.path.join(output_dir, f"rank_{torch.distributed.get_rank()}", f"tokens_per_expert.txt")
+        data_file_name = os.path.join(output_dir, f"rank_{torch.distributed.get_rank()}", f"tokens_per_expert.pt")
+        layer_tokens_per_expert_map = {}
+        with open(readable_file_name, "a+") as f:
+            for layer in self.decoder.layers:
+                if isinstance(layer.mlp, MoELayer):
+                    layer_number = layer.layer_number
+                    tokens_per_expert_map = layer.mlp.experts_token_count
+                    layer_tokens_per_expert_map[layer_number] = tokens_per_expert_map
                     f.write(f"Layer {layer_number}, Tokens per expert: {tokens_per_expert_map}\n")
-                with open(data_file_name,"ab+") as f:
-                    torch.save(tokens_per_expert_map, f)
+        with open(data_file_name,"wb+") as f:
+            torch.save(layer_tokens_per_expert_map, f)
 
     def set_input_tensor(self, input_tensor: Tensor) -> None:
         """Sets input tensor to the model.
