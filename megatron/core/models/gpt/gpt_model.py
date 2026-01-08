@@ -12,6 +12,7 @@ from megatron.core.dist_checkpointing.mapping import ShardedStateDict
 from megatron.core.inference.contexts import BaseInferenceContext
 from megatron.core.models.common.embeddings import YarnRotaryEmbedding
 from megatron.core.models.common.embeddings.language_model_embedding import LanguageModelEmbedding
+from megatron.core.models.common.embeddings.language_model_cpu_embedding import LanguageModelCPUEmbedding
 from megatron.core.models.common.embeddings.rotary_pos_embedding import (
     MultimodalRotaryEmbedding,
     RotaryEmbedding,
@@ -140,7 +141,9 @@ class GPTModel(LanguageModule):
         self.mtp_process = mtp_block_spec is not None
 
         if self.pre_process or self.mtp_process:
-            self.embedding = LanguageModelEmbedding(
+            # Use CPU embedding if specified in config
+            embedding_class = LanguageModelCPUEmbedding if getattr(self.config, 'cpu_embedding', False) else LanguageModelEmbedding
+            self.embedding = embedding_class(
                 config=self.config,
                 vocab_size=self.vocab_size,
                 max_sequence_length=self.max_sequence_length,
