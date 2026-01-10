@@ -285,6 +285,11 @@ class VocabParallelEmbedding(torch.nn.Module):
         if self.tp_group.size() > 1:
             output_parallel[input_mask, :] = 0.0
 
+        # For CPU embeddings, move to GPU before collective operations
+        # (NCCL backend requires CUDA tensors for collectives)
+        if output_parallel.device.type == 'cpu' and self.tp_group.size() > 1:
+            output_parallel = output_parallel.cuda()
+
         if self.reduce_scatter_embeddings:
             # Data format change to avoid explicit tranposes : [b s h] --> [s b h].
             output_parallel = output_parallel.transpose(0, 1).contiguous()

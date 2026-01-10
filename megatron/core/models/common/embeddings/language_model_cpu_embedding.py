@@ -136,6 +136,9 @@ class LanguageModelCPUEmbedding(MegatronModule):
 
         if self.add_position_embedding:
             position_embeddings = self.position_embeddings(position_ids_cpu)
+            # Handle device mismatch if word_embeddings is on GPU (TP > 1 case)
+            if word_embeddings.device != position_embeddings.device:
+                position_embeddings = position_embeddings.to(word_embeddings.device)
             embeddings = word_embeddings + position_embeddings
         else:
             embeddings = word_embeddings
@@ -149,12 +152,17 @@ class LanguageModelCPUEmbedding(MegatronModule):
             tokentype_ids_cpu = tokentype_ids.cpu() if tokentype_ids.device.type != 'cpu' else tokentype_ids
             # [b s h] -> [s b h] (So that it can be added with embeddings)
             tokentype_embedding = self.tokentype_embeddings(tokentype_ids_cpu).permute(1, 0, 2)
+            # Handle device mismatch if embeddings is on GPU (TP > 1 case)
+            if embeddings.device != tokentype_embedding.device:
+                tokentype_embedding = tokentype_embedding.to(embeddings.device)
             embeddings = embeddings + tokentype_embedding
         else:
             assert self.tokentype_embeddings is None
 
         # Move embeddings to GPU before applying dropout and other operations
-        embeddings = embeddings.cuda()
+        # (may already be on GPU if TP > 1 due to collective operations)
+        if embeddings.device.type != 'cuda':
+            embeddings = embeddings.cuda()
 
         # If the input flag for fp32 residual connection is set, convert for float.
         if self.config.fp32_residual_connection:
