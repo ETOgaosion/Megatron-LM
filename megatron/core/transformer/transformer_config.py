@@ -731,6 +731,14 @@ class TransformerConfig(ModelParallelConfig):
     cpu_embedding: bool = True
     """Use CPU for embedding layer."""
 
+    enable_module_queue: bool = False
+    """Enable ModuleQueue for last pipeline stage to offload layer weights to CPU and load
+    post-process weights in chunks. Only effective when post_process=True."""
+
+    module_queue_num_chunks: int = 4
+    """Number of chunks to split the post-process output layer weights into when using ModuleQueue.
+    More chunks allow finer-grained overlap between computation and data transfer."""
+
     def __post_init__(self):
         """Python dataclass method that is used to modify attributes after initialization.
         See https://docs.python.org/3/library/dataclasses.html#post-init-processing for more
