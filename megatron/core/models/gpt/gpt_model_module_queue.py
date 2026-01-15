@@ -288,6 +288,12 @@ class GPTModelModuleQueue(GPTModelNormal):
         to the parent GPTModel.forward(). Otherwise, it manages layer offloading
         and output layer chunk loading during the forward pass.
         """
+        # For non-first pipeline stages (pre_process=False), TransformerBlock expects
+        # input via input_tensor because it ignores the hidden_states argument.
+        # Set the decoder's input tensor when decoder_input is provided.
+        if decoder_input is not None and not self.pre_process:
+            self.decoder.set_input_tensor(decoder_input)
+
         if not self._module_queue_enabled or not self.training:
             return super().forward(
                 input_ids=input_ids,
