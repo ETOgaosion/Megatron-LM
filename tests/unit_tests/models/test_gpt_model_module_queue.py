@@ -6,17 +6,21 @@ import pytest
 import torch
 
 from megatron.core.models.gpt.gpt_layer_specs import get_gpt_layer_with_transformer_engine_spec
-from megatron.core.models.gpt.module_queue_gpt_model import ModuleQueue
+from megatron.core.models.gpt.gpt_model_normal import GPTModelNormal
+from megatron.core.models.gpt.gpt_model_module_queue import GPTModelModuleQueue
 from megatron.core.tensor_parallel.random import model_parallel_cuda_manual_seed
 from megatron.core.transformer.transformer_config import TransformerConfig
 from tests.unit_tests.test_utilities import Utils
 
 
-class TestModuleQueuePostProcess:
-    """Test ModuleQueue for post_process training only.
+class TestGPTModelModuleQueuePostProcess:
+    """Test GPTModelModuleQueue for post_process training only.
 
-    ModuleQueue is designed specifically for the last pipeline stage (post_process=True)
-    to enable memory-efficient training by offloading transformer layers to CPU
+    GPTModelModuleQueue is designed specifically for the last pipeline stage:
+    - pre_process=False (no embedding layer, receives hidden states from previous stage)
+    - post_process=True (has output layer for final logits)
+
+    This enables memory-efficient training by offloading transformer layers to CPU
     while loading output layer chunks.
     """
 
@@ -33,7 +37,7 @@ class TestModuleQueuePostProcess:
     def _create_module_queue_model(
         self, num_layers=2, hidden_size=12, num_attention_heads=4, num_chunks=2, enable_module_queue=True
     ):
-        """Create a ModuleQueue model with post_process=True."""
+        """Create a GPTModelModuleQueue model for last pipeline stage (pre_process=False, post_process=True)."""
         transformer_config = TransformerConfig(
             num_layers=num_layers,
             hidden_size=hidden_size,
@@ -42,32 +46,39 @@ class TestModuleQueuePostProcess:
             enable_module_queue=enable_module_queue,
             module_queue_num_chunks=num_chunks,
         )
-        model = ModuleQueue(
+        model = GPTModelModuleQueue(
             config=transformer_config,
             transformer_layer_spec=get_gpt_layer_with_transformer_engine_spec(),
             vocab_size=100,
             max_sequence_length=4,
-            pre_process=True,
-            post_process=True,  # ModuleQueue only works with post_process=True
+            pre_process=False,  # Last pipeline stage: no embedding layer
+            post_process=True,  # Last pipeline stage: has output layer
         )
         return model
 
     @pytest.mark.internal
     def test_constructor_with_post_process(self):
-        """Test that ModuleQueue initializes correctly with post_process=True."""
+        """Test that GPTModelModuleQueue initializes correctly for last pipeline stage."""
         model = self._create_module_queue_model()
 
-        assert isinstance(model, ModuleQueue)
+        assert isinstance(model, GPTModelModuleQueue)
+        assert isinstance(model, GPTModelNormal)  # GPTModelModuleQueue inherits from GPTModelNormal
         assert model._module_queue_enabled is True
+        # Verify last pipeline stage configuration
+        assert model.pre_process is False, "GPTModelModuleQueue should have pre_process=False (last stage)"
+        assert model.post_process is True, "GPTModelModuleQueue should have post_process=True (last stage)"
+        # Verify no embedding layer (pre_process=False)
+        assert not hasattr(model, 'embedding') or model.embedding is None
+        # Verify has output layer (post_process=True)
+        assert hasattr(model, 'output_layer')
         assert model.max_sequence_length == 4
         assert model.num_chunks == 2
         assert len(model.decoder.layers) == 2
-        assert hasattr(model, 'output_layer')
         assert len(model.output_layer_weight_chunks) == 2
 
     @pytest.mark.internal
     def test_module_queue_disabled_when_no_post_process(self):
-        """Test that ModuleQueue falls back to regular GPTModel when post_process=False."""
+        """Test that GPTModelModuleQueue falls back to regular GPTModelNormal behavior when post_process=False."""
         transformer_config = TransformerConfig(
             num_layers=2,
             hidden_size=12,
@@ -76,25 +87,29 @@ class TestModuleQueuePostProcess:
             enable_module_queue=True,
             module_queue_num_chunks=2,
         )
-        model = ModuleQueue(
+        # Middle pipeline stage: no embedding, no output layer
+        model = GPTModelModuleQueue(
             config=transformer_config,
             transformer_layer_spec=get_gpt_layer_with_transformer_engine_spec(),
             vocab_size=100,
             max_sequence_length=4,
-            pre_process=True,
-            post_process=False,  # Not post_process stage
+            pre_process=False,
+            post_process=False,  # Not post_process stage - module queue should be disabled
         )
 
-        assert isinstance(model, ModuleQueue)
+        assert isinstance(model, GPTModelModuleQueue)
         assert model._module_queue_enabled is False
 
     @pytest.mark.internal
     def test_module_queue_disabled_when_config_disabled(self):
-        """Test that ModuleQueue is disabled when enable_module_queue=False in config."""
+        """Test that GPTModelModuleQueue is disabled when enable_module_queue=False in config."""
         model = self._create_module_queue_model(enable_module_queue=False)
 
-        assert isinstance(model, ModuleQueue)
+        assert isinstance(model, GPTModelModuleQueue)
         assert model._module_queue_enabled is False
+        # Still verify last pipeline stage configuration
+        assert model.pre_process is False
+        assert model.post_process is True
 
     @pytest.mark.internal
     def test_output_layer_chunks_initialization(self):
@@ -113,18 +128,21 @@ class TestModuleQueuePostProcess:
         model.cuda()
         model.train()
 
+        config = model.config
         sequence_length = model.max_sequence_length
         micro_batch_size = 2
 
-        data = list(range(sequence_length))
-        input_ids = torch.tensor(data, dtype=torch.int64).repeat((micro_batch_size, 1)).cuda()
-        position_ids = torch.tensor(data, dtype=torch.int64).repeat((micro_batch_size, 1)).cuda()
+        # Since pre_process=False, we provide decoder_input (hidden states) instead of input_ids
+        # Shape: [sequence_length, batch_size, hidden_size]
+        decoder_input = torch.randn(
+            sequence_length, micro_batch_size, config.hidden_size, dtype=torch.float32
+        ).cuda()
         attention_mask = torch.ones(
             (micro_batch_size, 1, sequence_length, sequence_length), dtype=bool
         ).cuda()
 
         logits = model.forward(
-            input_ids=input_ids, position_ids=position_ids, attention_mask=attention_mask
+            input_ids=None, position_ids=None, attention_mask=attention_mask, decoder_input=decoder_input
         )
 
         assert logits.shape[0] == micro_batch_size
@@ -138,18 +156,21 @@ class TestModuleQueuePostProcess:
         model.cuda()
         model.train()
 
+        config = model.config
         sequence_length = model.max_sequence_length
         micro_batch_size = 2
 
-        data = list(range(sequence_length))
-        input_ids = torch.tensor(data, dtype=torch.int64).repeat((micro_batch_size, 1)).cuda()
-        position_ids = torch.tensor(data, dtype=torch.int64).repeat((micro_batch_size, 1)).cuda()
+        # Since pre_process=False, we provide decoder_input (hidden states) instead of input_ids
+        decoder_input = torch.randn(
+            sequence_length, micro_batch_size, config.hidden_size, dtype=torch.float32
+        ).cuda()
+        decoder_input.requires_grad = True
         attention_mask = torch.ones(
             (micro_batch_size, 1, sequence_length, sequence_length), dtype=bool
         ).cuda()
 
         logits = model.forward(
-            input_ids=input_ids, position_ids=position_ids, attention_mask=attention_mask
+            input_ids=None, position_ids=None, attention_mask=attention_mask, decoder_input=decoder_input
         )
 
         # Compute loss and backward
@@ -181,12 +202,14 @@ class TestModuleQueuePostProcess:
         model.cuda()
         model.train()
 
+        config = model.config
         sequence_length = model.max_sequence_length
         micro_batch_size = 2
 
-        data = list(range(sequence_length))
-        input_ids = torch.tensor(data, dtype=torch.int64).repeat((micro_batch_size, 1)).cuda()
-        position_ids = torch.tensor(data, dtype=torch.int64).repeat((micro_batch_size, 1)).cuda()
+        # Since pre_process=False, we provide decoder_input (hidden states) instead of input_ids
+        decoder_input = torch.randn(
+            sequence_length, micro_batch_size, config.hidden_size, dtype=torch.float32
+        ).cuda()
         attention_mask = torch.ones(
             (micro_batch_size, 1, sequence_length, sequence_length), dtype=bool
         ).cuda()
@@ -194,7 +217,7 @@ class TestModuleQueuePostProcess:
         # Run multiple forward passes
         for _ in range(3):
             logits = model.forward(
-                input_ids=input_ids, position_ids=position_ids, attention_mask=attention_mask
+                input_ids=None, position_ids=None, attention_mask=attention_mask, decoder_input=decoder_input
             )
             assert logits.shape == (micro_batch_size, sequence_length, model.vocab_size)
 
