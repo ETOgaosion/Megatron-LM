@@ -7,11 +7,11 @@ from torch import Tensor
 
 from megatron.core.dist_checkpointing.mapping import ShardedStateDict
 from megatron.core.inference.contexts import BaseInferenceContext
-from megatron.core.models.gpt import GPTModel
+from megatron.core.models.gpt import GPTModelNormal
 from megatron.core.utils import deprecate_inference_params
 
 
-class RetroModel(GPTModel):
+class RetroModel(GPTModelNormal):
     """Retro Model.
 
     A Retro model mostly re-uses the GPTModel interface, with the only difference
