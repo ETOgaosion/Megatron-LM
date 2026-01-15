@@ -267,6 +267,14 @@ class GPTModelModuleQueue(GPTModelNormal):
 
         self.layers_on_cpu[layer_idx] = False
 
+    def _ensure_layers_on_gpu(self):
+        """Ensure all transformer layers are on GPU before forward pass."""
+        for layer_idx in range(self.num_layers):
+            if self.layers_on_cpu[layer_idx]:
+                self._load_layer_to_gpu(layer_idx)
+        # Synchronize to ensure all transfers are complete
+        torch.cuda.current_stream().wait_stream(self.h2d_stream)
+
     def forward(
         self,
         input_ids: Tensor,
@@ -293,6 +301,10 @@ class GPTModelModuleQueue(GPTModelNormal):
         # Set the decoder's input tensor when decoder_input is provided.
         if decoder_input is not None and not self.pre_process:
             self.decoder.set_input_tensor(decoder_input)
+
+        # Ensure all layers are on GPU before forward pass
+        if self._module_queue_enabled:
+            self._ensure_layers_on_gpu()
 
         if not self._module_queue_enabled or not self.training:
             return super().forward(
