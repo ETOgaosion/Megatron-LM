@@ -12,7 +12,6 @@ import torch
 import torch.nn.functional as F
 from torch.nn.parameter import Parameter
 
-from megatron.core.transformer import TransformerConfig
 from megatron.core.model_parallel_config import ModelParallelConfig
 from megatron.core.parallel_state import (
     get_global_memory_buffer,
@@ -209,7 +208,7 @@ class VocabParallelEmbedding(torch.nn.Module):
         *,
         init_method: Callable,
         reduce_scatter_embeddings: bool = False,
-        config: TransformerConfig,
+        config: ModelParallelConfig,
         tp_group: Optional[torch.distributed.ProcessGroup] = None,
     ):
         super(VocabParallelEmbedding, self).__init__()
@@ -230,10 +229,10 @@ class VocabParallelEmbedding(torch.nn.Module):
         self.deterministic_mode = config.deterministic_mode
 
         # Allocate weights and initialize.
-        if config.use_cpu_initialization or config.cpu_embedding:
+        if config.use_cpu_initialization:
             self.weight = Parameter(
                 torch.empty(
-                    self.num_embeddings_per_partition, self.embedding_dim, dtype=config.params_dtype, device="cpu" if config.cpu_embedding else torch.cuda.current_device()
+                    self.num_embeddings_per_partition, self.embedding_dim, dtype=config.params_dtype
                 )
             )
             if config.perform_initialization:
@@ -249,12 +248,11 @@ class VocabParallelEmbedding(torch.nn.Module):
                     world_size=get_pg_size(self.tp_group),
                 )
         else:
-            raise RuntimeError("GPU initialization for embeddings is not supported anymore.")
             self.weight = Parameter(
                 torch.empty(
                     self.num_embeddings_per_partition,
                     self.embedding_dim,
-                    device="cpu" if config.cpu_embedding else torch.cuda.current_device(),
+                    device=torch.cuda.current_device(),
                     dtype=config.params_dtype,
                 )
             )
@@ -284,11 +282,6 @@ class VocabParallelEmbedding(torch.nn.Module):
         # Mask the output embedding.
         if self.tp_group.size() > 1:
             output_parallel[input_mask, :] = 0.0
-
-        # For CPU embeddings, move to GPU before collective operations
-        # (NCCL backend requires CUDA tensors for collectives)
-        if output_parallel.device.type == 'cpu' and self.tp_group.size() > 1:
-            output_parallel = output_parallel.cuda()
 
         if self.reduce_scatter_embeddings:
             # Data format change to avoid explicit tranposes : [b s h] --> [s b h].
