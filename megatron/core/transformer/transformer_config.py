@@ -728,7 +728,7 @@ class TransformerConfig(ModelParallelConfig):
     #######################
     # [Added] Megatron-Base
     #######################
-    cpu_embedding: bool = True
+    cpu_embedding: bool = False
     """Use CPU for embedding layer."""
 
     enable_module_queue: bool = False
